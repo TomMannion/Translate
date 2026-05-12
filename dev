@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+#
+# Coffee Subs — one-shot dev runner.
+#
+# Verifies your toolchain, installs deps if missing, ensures data/ exists,
+# then starts the backend (Hono + tsx watch) and frontend (Vite) in parallel.
+# Ctrl+C, closing the terminal, or either process crashing tears the whole
+# stack down — no orphaned servers.
+#
+# Usage:
+#   ./dev              start everything
+#   ./dev --setup      install deps but don't start servers
+#   ./dev --help       this message
+#
+# Override ports with env vars:
+#   SERVER_PORT=4001 WEB_PORT=4173 ./dev
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+SERVER_PORT="${SERVER_PORT:-3001}"
+WEB_PORT="${WEB_PORT:-5173}"
+MODE="run"
+
+for arg in "$@"; do
+  case "$arg" in
+    --setup) MODE="setup" ;;
+    --help|-h)
+      sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      echo "unknown flag: $arg (use --help)" >&2
+      exit 64
+      ;;
+  esac
+done
+
+# ---------- pretty output ----------
+if [[ -t 1 ]]; then
+  c_dim=$'\033[2m'; c_red=$'\033[31m'; c_yellow=$'\033[33m'
+  c_green=$'\033[32m'; c_bold=$'\033[1m'; c_reset=$'\033[0m'
+else
+  c_dim=""; c_red=""; c_yellow=""; c_green=""; c_bold=""; c_reset=""
+fi
+say()  { printf "%s→%s %s\n" "$c_bold" "$c_reset" "$*"; }
+ok()   { printf "%s✓%s %s\n" "$c_green" "$c_reset" "$*"; }
+warn() { printf "%s!%s %s\n" "$c_yellow" "$c_reset" "$*"; }
+die()  { printf "%s✗%s %s\n" "$c_red" "$c_reset" "$*" >&2; exit 1; }
+
+# ---------- preflight ----------
+require() {
+  command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1${2:+ — $2}"
+}
+require node "install Node.js 22 LTS from https://nodejs.org"
+require pnpm "install pnpm: corepack enable && corepack prepare pnpm@latest --activate"
+
+NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
+if [[ "$NODE_MAJOR" -lt 22 ]]; then
+  warn "Node $(node -v) detected; project targets Node 22 LTS. Continuing anyway."
+fi
+
+# ---------- ensure layout ----------
+mkdir -p data
+
+# ---------- install deps if missing ----------
+install_if_needed() {
+  local pkg="$1"
+  if [[ ! -d "$pkg/node_modules" ]]; then
+    say "installing $pkg dependencies (first run)"
+    pnpm -C "$pkg" install
+  fi
+}
+install_if_needed server
+install_if_needed web
+
+ok "setup complete"
+
+if [[ "$MODE" == "setup" ]]; then
+  echo ""
+  say "ready. start the stack with: ./dev"
+  exit 0
+fi
+
+# ---------- run ----------
+echo ""
+printf "%s%s%s\n" "$c_bold" "Coffee Subs" "$c_reset"
+echo ""
+printf "  Server: http://localhost:%s\n" "$SERVER_PORT"
+printf "  Web:    http://localhost:%s\n" "$WEB_PORT"
+echo ""
+printf "  %sCtrl+C stops both. Closing this terminal also stops both.%s\n" "$c_dim" "$c_reset"
+echo ""
+
+# Enable job control so each backgrounded command becomes its own process
+# group leader. Then we can `kill -- -PGID` to nuke the whole group (pnpm +
+# tsx + vite + esbuild watchers) in one shot, even if pnpm has died and its
+# children have been re-parented to init.
+set -m
+
+PORT="$SERVER_PORT" pnpm -C server dev &
+SERVER_PGID=$!
+SERVER_PORT="$SERVER_PORT" pnpm -C web dev --port "$WEB_PORT" &
+WEB_PGID=$!
+
+# We don't need job-control messages after this point; disable monitor mode
+# so the shell stays quiet while it waits.
+set +m
+
+# ---------- teardown ----------
+already_cleaned=0
+cleanup() {
+  [[ $already_cleaned -eq 1 ]] && return
+  already_cleaned=1
+  echo ""
+  say "shutting down"
+  # Signal the whole process group of each backgrounded job. The negative
+  # PGID syntax means "every process in that group".
+  kill -TERM -- "-$SERVER_PGID" 2>/dev/null || true
+  kill -TERM -- "-$WEB_PGID" 2>/dev/null || true
+  sleep 1
+  kill -KILL -- "-$SERVER_PGID" 2>/dev/null || true
+  kill -KILL -- "-$WEB_PGID" 2>/dev/null || true
+  # Belt-and-suspenders: any stragglers matching our process names.
+  pkill -KILL -f "tsx watch src/index.ts" 2>/dev/null || true
+  pkill -KILL -f "vite.* --port $WEB_PORT" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM HUP
+
+# Wait until either process exits, then fall through and let the EXIT trap
+# tear the other down. No noisy "X exited" warning — pnpm/tsx/vite already
+# log their own errors if one of them crashes for real.
+while kill -0 "$SERVER_PGID" 2>/dev/null && kill -0 "$WEB_PGID" 2>/dev/null; do
+  sleep 1
+done
