@@ -343,13 +343,18 @@ pipelineRoute.get("/episodes/:id/events", (c) => {
   });
 });
 
-pipelineRoute.post("/episodes/:id/export", (c) => {
+pipelineRoute.post("/episodes/:id/export", async (c) => {
   const episodeId = c.req.param("id");
   const db = getDb();
   const epRow = db
     .prepare("SELECT * FROM episodes WHERE id = ?")
     .get(episodeId) as EpisodeRow | undefined;
   if (!epRow) return c.json({ error: "not found" }, 404);
+
+  const body = (await c.req.json().catch(() => ({}))) as {
+    variant?: "translation_only" | "bilingual";
+  };
+  const variant = body.variant ?? "translation_only";
 
   const lineRows = db
     .prepare(
@@ -358,40 +363,78 @@ pipelineRoute.post("/episodes/:id/export", (c) => {
     .all(episodeId) as LineRow[];
 
   const cfg = readConfig();
-  const entries = lineRows.map((r) => ({
-    idx: r.idx,
-    start_ms: r.start_ms,
-    end_ms: r.end_ms,
-    text: r.translation ?? "",
-  }));
+  const entries = lineRows.map((r) => {
+    const translation = r.translation ?? "";
+    let text: string;
+    if (variant === "bilingual") {
+      // English on top, source on bottom — typical for an English-speaking
+      // audience that occasionally wants the source for reference.
+      text = translation
+        ? `${translation}\n${r.source_text}`
+        : r.source_text;
+    } else {
+      text = translation;
+    }
+    return {
+      idx: r.idx,
+      start_ms: r.start_ms,
+      end_ms: r.end_ms,
+      text,
+    };
+  });
 
-  let outputPath = epRow.output_srt_path;
+  // Derive a per-variant filename so bilingual and translation_only outputs
+  // don't clobber each other.
+  const sourceDir = path.dirname(epRow.source_srt_path);
+  const sourceBase = path.basename(epRow.source_srt_path, ".srt");
+  const suffix = variant === "bilingual" ? ".bilingual.srt" : ".eng.srt";
+  let outputPath = path.join(sourceDir, `${sourceBase}${suffix}`);
+
+  let conflictAction: "wrote" | "overwrote" | "incremented" | "skipped" =
+    "wrote";
   if (fs.existsSync(outputPath)) {
     if (cfg.file_conflict_strategy === "skip") {
-      return c.json({ error: "output file exists, strategy=skip" }, 409);
+      return c.json(
+        {
+          error: "output file exists, strategy=skip",
+          attempted_path: outputPath,
+          strategy: cfg.file_conflict_strategy,
+        },
+        409,
+      );
     }
     if (cfg.file_conflict_strategy === "increment") {
-      const dir = path.dirname(outputPath);
-      const base = path
-        .basename(outputPath, ".srt")
-        .replace(/\.\d+$/, "");
+      const base = path.basename(outputPath, ".srt").replace(/\.\d+$/, "");
       let n = 2;
-      let candidate = path.join(dir, `${base}.${n}.srt`);
+      let candidate = path.join(sourceDir, `${base}.${n}.srt`);
       while (fs.existsSync(candidate)) {
         n++;
-        candidate = path.join(dir, `${base}.${n}.srt`);
+        candidate = path.join(sourceDir, `${base}.${n}.srt`);
       }
       outputPath = candidate;
+      conflictAction = "incremented";
+    } else {
+      conflictAction = "overwrote";
     }
-    // "overwrite" → just write
   }
 
   fs.writeFileSync(outputPath, writeSrt(entries), "utf8");
 
   const now = Date.now();
-  db.prepare(
-    "UPDATE episodes SET exported_at = ?, output_srt_path = ?, updated_at = ? WHERE id = ?",
-  ).run(now, outputPath, now, episodeId);
+  // Only stamp `exported_at` for the canonical translation_only output. A
+  // bilingual export is a side artefact; status shouldn't flip on it alone.
+  if (variant === "translation_only") {
+    db.prepare(
+      "UPDATE episodes SET exported_at = ?, output_srt_path = ?, updated_at = ? WHERE id = ?",
+    ).run(now, outputPath, now, episodeId);
+  }
 
-  return c.json({ ok: true, output_srt_path: outputPath, exported_at: now });
+  return c.json({
+    ok: true,
+    output_srt_path: outputPath,
+    variant,
+    strategy: cfg.file_conflict_strategy,
+    action: conflictAction,
+    exported_at: variant === "translation_only" ? now : null,
+  });
 });

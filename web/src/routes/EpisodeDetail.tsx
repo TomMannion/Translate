@@ -363,14 +363,17 @@ function TranslateSection({
   onChanged: () => void;
 }) {
   const [exportPath, setExportPath] = useState<string | null>(null);
+  const [exportAction, setExportAction] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const onExport = async () => {
+  const onExport = async (variant: "translation_only" | "bilingual") => {
     setExportError(null);
     setExportPath(null);
+    setExportAction(null);
     try {
-      const result = await api.exportEpisode(episode.id);
+      const result = await api.exportEpisode(episode.id, variant);
       setExportPath(result.output_srt_path);
+      setExportAction(`${result.action} (strategy: ${result.strategy})`);
       onChanged();
     } catch (err) {
       setExportError(err instanceof Error ? err.message : String(err));
@@ -410,13 +413,23 @@ function TranslateSection({
           </button>
         )}
         <button
-          onClick={onExport}
+          onClick={() => onExport("translation_only")}
           disabled={
             episode.lines_translated_count === 0 || stream.state.active
           }
           className="rounded bg-stone-900 text-white px-4 py-2 disabled:opacity-50"
         >
           Export .eng.srt
+        </button>
+        <button
+          onClick={() => onExport("bilingual")}
+          disabled={
+            episode.lines_translated_count === 0 || stream.state.active
+          }
+          className="rounded border border-stone-300 px-4 py-2 disabled:opacity-50"
+          title="Bilingual: English line followed by source on a second row"
+        >
+          Export .bilingual.srt
         </button>
         {!contextPresent && (
           <span className="text-xs text-amber-700">
@@ -451,7 +464,8 @@ function TranslateSection({
 
       {exportPath && (
         <p className="text-sm text-emerald-700">
-          Wrote <code className="font-mono">{exportPath}</code>
+          {exportAction ? `${exportAction} — ` : ""}
+          <code className="font-mono">{exportPath}</code>
         </p>
       )}
       {exportError && <p className="text-sm text-red-700">{exportError}</p>}

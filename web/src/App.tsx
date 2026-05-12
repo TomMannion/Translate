@@ -2,6 +2,7 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import Episodes from "./routes/Episodes.tsx";
 import EpisodeDetail from "./routes/EpisodeDetail.tsx";
 import Settings from "./routes/Settings.tsx";
+import Usage from "./routes/Usage.tsx";
 
 export default function App() {
   return (
@@ -14,6 +15,9 @@ export default function App() {
           <Link to="/" className="text-stone-600 hover:text-stone-900">
             Episodes
           </Link>
+          <Link to="/usage" className="text-stone-600 hover:text-stone-900">
+            Usage
+          </Link>
           <Link to="/settings" className="text-stone-600 hover:text-stone-900">
             Settings
           </Link>
@@ -23,6 +27,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Episodes />} />
           <Route path="/episodes/:id" element={<EpisodeDetail />} />
+          <Route path="/usage" element={<Usage />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

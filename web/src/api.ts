@@ -7,8 +7,18 @@ import type {
   ScanResult,
   SubtitleLine,
   TestKeyResult,
-  UsageTotals,
+  UsageReport,
 } from "../../shared/types.ts";
+
+export type ExportVariant = "translation_only" | "bilingual";
+export interface ExportResult {
+  ok: true;
+  output_srt_path: string;
+  variant: ExportVariant;
+  strategy: string;
+  action: "wrote" | "overwrote" | "incremented" | "skipped";
+  exported_at: number | null;
+}
 
 async function http<T>(
   url: string,
@@ -68,11 +78,14 @@ export const api = {
       `/api/episodes/${id}/translate/cancel`,
       { method: "POST" },
     ),
-  exportEpisode: (id: string) =>
-    http<{ ok: true; output_srt_path: string; exported_at: number }>(
-      `/api/episodes/${id}/export`,
-      { method: "POST" },
-    ),
+  exportEpisode: (
+    id: string,
+    variant: ExportVariant = "translation_only",
+  ) =>
+    http<ExportResult>(`/api/episodes/${id}/export`, {
+      method: "POST",
+      body: JSON.stringify({ variant }),
+    }),
 
   extractContext: (id: string) =>
     http<{ ok: true; markdown_content: string }>(
@@ -118,5 +131,5 @@ export const api = {
       body: JSON.stringify({ episode_id, find, replace, ...options }),
     }),
 
-  getUsage: () => http<UsageTotals>("/api/usage"),
+  getUsage: () => http<UsageReport>("/api/usage"),
 };

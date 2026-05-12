@@ -1,13 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.ts";
-import type { Episode, ScanResult } from "../../../shared/types.ts";
+import type {
+  DerivedStatus,
+  Episode,
+  ScanResult,
+} from "../../../shared/types.ts";
+
+type StatusFilter = "all" | DerivedStatus;
 
 export default function Episodes() {
   const [episodes, setEpisodes] = useState<Episode[] | null>(null);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState<StatusFilter>("all");
 
   const load = async () => {
     setError(null);
@@ -37,6 +44,29 @@ export default function Episodes() {
     }
   };
 
+  const counts = useMemo(() => {
+    const c: Record<DerivedStatus | "all", number> = {
+      all: 0,
+      draft: 0,
+      metadata_ready: 0,
+      context_extracted: 0,
+      translated: 0,
+      reviewed: 0,
+      exported: 0,
+    };
+    for (const e of episodes ?? []) {
+      c.all += 1;
+      c[e.status] += 1;
+    }
+    return c;
+  }, [episodes]);
+
+  const visible = useMemo(() => {
+    if (!episodes) return null;
+    if (filter === "all") return episodes;
+    return episodes.filter((e) => e.status === filter);
+  }, [episodes, filter]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -49,6 +79,34 @@ export default function Episodes() {
           {busy ? "Scanning…" : "Scan folder"}
         </button>
       </div>
+
+      {episodes && episodes.length > 0 && (
+        <div className="flex flex-wrap gap-2 text-sm">
+          {(
+            [
+              "all",
+              "draft",
+              "metadata_ready",
+              "context_extracted",
+              "translated",
+              "reviewed",
+              "exported",
+            ] as StatusFilter[]
+          ).map((s) => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={`rounded-full px-3 py-1 text-xs ${
+                filter === s
+                  ? "bg-stone-900 text-white"
+                  : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+              }`}
+            >
+              {s} ({counts[s]})
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-red-800 text-sm">
@@ -81,9 +139,13 @@ export default function Episodes() {
           </Link>{" "}
           and click <strong>Scan folder</strong>.
         </p>
+      ) : visible && visible.length === 0 ? (
+        <p className="text-stone-500 text-sm">
+          No episodes match this filter.
+        </p>
       ) : (
         <ul className="divide-y divide-stone-200 rounded border border-stone-200 bg-white">
-          {episodes.map((ep) => (
+          {visible!.map((ep) => (
             <li key={ep.id} className="px-4 py-3 hover:bg-stone-50">
               <Link to={`/episodes/${ep.id}`} className="block">
                 <div className="flex items-center justify-between">

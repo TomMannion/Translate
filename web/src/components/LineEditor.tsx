@@ -35,30 +35,32 @@ export default function LineEditor({
     return lines;
   }, [lines, filter]);
 
-  const jumpToNextUnapproved = useCallback(() => {
-    const active = document.activeElement as HTMLElement | null;
-    // Find currently focused line's idx, if any.
-    let cursorIdx = -1;
-    if (active?.dataset?.lineIdx) {
-      cursorIdx = Number(active.dataset.lineIdx);
-    }
-    const next = lines.find(
-      (l) =>
-        l.translation !== null &&
-        !l.approved &&
-        l.idx > cursorIdx,
-    );
-    if (!next) return;
-    const el = containerRef.current?.querySelector<HTMLTextAreaElement>(
-      `textarea[data-line-id="${next.id}"]`,
-    );
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.focus();
-    }
-  }, [lines]);
+  const [showHelp, setShowHelp] = useState(false);
 
-  // 'j' jumps to next unapproved when not in an editable field.
+  const jumpToNextUnapproved = useCallback(
+    (fromIdx?: number) => {
+      const active = document.activeElement as HTMLElement | null;
+      let cursorIdx = fromIdx ?? -1;
+      if (fromIdx === undefined && active?.dataset?.lineIdx) {
+        cursorIdx = Number(active.dataset.lineIdx);
+      }
+      const next = lines.find(
+        (l) =>
+          l.translation !== null && !l.approved && l.idx > cursorIdx,
+      );
+      if (!next) return;
+      const el = containerRef.current?.querySelector<HTMLTextAreaElement>(
+        `textarea[data-line-id="${next.id}"]`,
+      );
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.focus();
+      }
+    },
+    [lines],
+  );
+
+  // Global shortcuts when NOT inside an editable field.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -70,6 +72,11 @@ export default function LineEditor({
       if (e.key === "j") {
         e.preventDefault();
         jumpToNextUnapproved();
+      } else if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        setShowHelp((s) => !s);
+      } else if (e.key === "Escape") {
+        setShowHelp(false);
       }
     };
     window.addEventListener("keydown", handler);
@@ -102,11 +109,18 @@ export default function LineEditor({
             </option>
           </select>
           <button
-            onClick={jumpToNextUnapproved}
+            onClick={() => jumpToNextUnapproved()}
             className="rounded border border-stone-300 px-2 py-1 text-sm"
             title="Jump to next unapproved line (j)"
           >
             Next unapproved (j)
+          </button>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="rounded border border-stone-300 px-2 py-1 text-sm"
+            title="Keyboard shortcuts (?)"
+          >
+            ?
           </button>
         </div>
       </div>
@@ -115,6 +129,8 @@ export default function LineEditor({
         episodeId={lines[0]?.episode_id ?? null}
         onApplied={onBulkChanged}
       />
+
+      {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
 
       <div
         ref={containerRef}
@@ -223,15 +239,38 @@ function LineRow({
 
   const onKeyDown = async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      // Save (if dirty) → approve → advance to next unapproved.
       e.preventDefault();
-      await save();
-      // Then look for next unapproved.
-      const next = document.querySelector<HTMLTextAreaElement>(
-        `textarea[data-line-idx][data-approved="false"]`,
-      );
-      if (next && Number(next.dataset.lineIdx) > line.idx) {
-        next.focus();
-        next.scrollIntoView({ behavior: "smooth", block: "center" });
+      setBusy(true);
+      setError(null);
+      try {
+        if (dirty) {
+          const updated = await api.updateLine(line.id, draft);
+          onChanged(updated.line);
+        }
+        const approved = await api.setApproval(line.id, true);
+        onChanged(approved.line);
+        // Advance.
+        const all = Array.from(
+          document.querySelectorAll<HTMLTextAreaElement>(
+            "textarea[data-line-idx]",
+          ),
+        );
+        const next = all.find(
+          (ta) =>
+            Number(ta.dataset.lineIdx) > line.idx &&
+            ta.dataset.approved === "false",
+        );
+        if (next) {
+          next.scrollIntoView({ behavior: "smooth", block: "center" });
+          next.focus();
+        } else {
+          e.currentTarget.blur();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
       }
     } else if (e.key === "Escape") {
       setDraft(line.translation ?? "");
@@ -416,6 +455,49 @@ function BulkReplace({
       </button>
       {result && <span className="text-xs text-stone-600">{result}</span>}
     </div>
+  );
+}
+
+function ShortcutsHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4"
+      onClick={onClose}
+    >
+      <div
+        className="rounded-lg bg-white shadow-xl max-w-md w-full p-6 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold">Keyboard shortcuts</h3>
+        <table className="w-full text-sm">
+          <tbody>
+            <Row keys="j" desc="Jump to next unapproved line" />
+            <Row keys="?" desc="Toggle this help" />
+            <Row keys="Esc" desc="Close help / revert textarea draft" />
+            <Row
+              keys="⌘/Ctrl + Enter"
+              desc="Save + approve + advance (in textarea)"
+            />
+            <Row keys="Tab" desc="Move between textareas (native)" />
+          </tbody>
+        </table>
+        <button
+          onClick={onClose}
+          className="rounded bg-stone-900 text-white px-3 py-1.5 text-sm"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Row({ keys, desc }: { keys: string; desc: string }) {
+  return (
+    <tr className="border-t border-stone-100">
+      <td className="py-1 pr-3 font-mono text-xs whitespace-nowrap">{keys}</td>
+      <td className="py-1 text-stone-700">{desc}</td>
+    </tr>
   );
 }
 

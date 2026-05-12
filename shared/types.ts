@@ -106,6 +106,39 @@ export interface UsageTotals {
   cost_usd: number;
 }
 
+export interface UsageByEpisode extends UsageTotals {
+  episode_id: string | null;
+  episode_title: string | null;
+}
+
+export interface UsageByKind extends UsageTotals {
+  kind: "context" | "translate" | "retranslate" | "test";
+}
+
+export interface UsageByModel extends UsageTotals {
+  model: string;
+}
+
+export interface ModelRates {
+  input_per_mtok: number;
+  output_per_mtok: number;
+  thinking_per_mtok: number;
+}
+
+export interface PricingSnapshot {
+  default: ModelRates;
+  models: Record<string, ModelRates>;
+}
+
+export interface UsageReport {
+  totals: UsageTotals;
+  by_episode: UsageByEpisode[];
+  by_kind: UsageByKind[];
+  by_model: UsageByModel[];
+  pricing: PricingSnapshot;
+  last_call_at: number | null;
+}
+
 // SSE event payloads emitted by /api/episodes/:id/events during translation.
 export type TranslationEvent =
   | { type: "start"; total_chunks: number; total_lines: number }

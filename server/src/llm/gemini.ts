@@ -3,14 +3,7 @@ import { GoogleGenAI, type Schema } from "@google/genai";
 import type { ThinkingLevel } from "../../../shared/types.ts";
 import { getDb } from "../db.ts";
 import { readConfig } from "../config.ts";
-
-// Approximate USD per million tokens. Update as Gemini pricing changes; used
-// only for the in-app cost dashboard, not for billing.
-const PRICING_USD_PER_MTOK = {
-  input: 1.25,
-  output: 10.0,
-  thinking: 10.0,
-};
+import { costFor } from "./pricing.ts";
 
 const THINKING_BUDGETS: Record<ThinkingLevel, number> = {
   low: 512,
@@ -91,11 +84,7 @@ export async function callGemini(
     const inputTokens = usage?.promptTokenCount ?? 0;
     const outputTokens = usage?.candidatesTokenCount ?? 0;
     const thinkingTokens = usage?.thoughtsTokenCount ?? 0;
-    const costUsd =
-      (inputTokens * PRICING_USD_PER_MTOK.input +
-        outputTokens * PRICING_USD_PER_MTOK.output +
-        thinkingTokens * PRICING_USD_PER_MTOK.thinking) /
-      1_000_000;
+    const costUsd = costFor(model, inputTokens, outputTokens, thinkingTokens);
 
     recordCall({
       id: callId,
