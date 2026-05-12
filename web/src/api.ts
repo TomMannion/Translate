@@ -88,5 +88,35 @@ export const api = {
       },
     ),
 
+  updateLine: (id: string, translation: string) =>
+    http<{ line: SubtitleLine }>(`/api/lines/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ translation }),
+    }),
+  setApproval: (id: string, approved: boolean) =>
+    http<{ line: SubtitleLine }>(`/api/lines/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ approved }),
+    }),
+  undoLine: (id: string) =>
+    http<{ line: SubtitleLine }>(`/api/lines/${id}/undo`, {
+      method: "POST",
+    }),
+  retranslateLine: (id: string, hint: string) =>
+    http<{ line: SubtitleLine }>(`/api/lines/${id}/retranslate`, {
+      method: "POST",
+      body: JSON.stringify({ hint }),
+    }),
+  bulkReplace: (
+    episode_id: string,
+    find: string,
+    replace: string,
+    options: { case_sensitive: boolean; whole_word: boolean },
+  ) =>
+    http<{ modified: number }>(`/api/lines/bulk-replace`, {
+      method: "POST",
+      body: JSON.stringify({ episode_id, find, replace, ...options }),
+    }),
+
   getUsage: () => http<UsageTotals>("/api/usage"),
 };

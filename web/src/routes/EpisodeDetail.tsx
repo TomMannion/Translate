@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api.ts";
 import { useTranslationStream } from "../hooks/useTranslationStream.ts";
+import LineEditor from "../components/LineEditor.tsx";
 import type {
   Episode,
   EpisodeMetadata,
@@ -74,7 +75,15 @@ export default function EpisodeDetail() {
         onChanged={reload}
       />
 
-      <LinesPreview lines={lines} />
+      <LineEditor
+        lines={lines}
+        onLineChanged={(updated) =>
+          setLines((prev) =>
+            prev.map((l) => (l.id === updated.id ? updated : l)),
+          )
+        }
+        onBulkChanged={reload}
+      />
     </div>
   );
 }
@@ -450,42 +459,3 @@ function TranslateSection({
   );
 }
 
-function LinesPreview({ lines }: { lines: SubtitleLine[] }) {
-  return (
-    <section>
-      <h2 className="text-sm font-semibold text-stone-600 uppercase tracking-wide mb-2">
-        Lines (read-only preview — full editor in Phase 3)
-      </h2>
-      <div className="rounded border border-stone-200 bg-white divide-y divide-stone-100">
-        {lines.slice(0, 50).map((l) => (
-          <div key={l.id} className="px-3 py-2 grid grid-cols-12 gap-3">
-            <div className="col-span-2 text-xs font-mono text-stone-500">
-              #{l.idx}
-              <br />
-              {formatTs(l.start_ms)}
-            </div>
-            <div className="col-span-5 text-sm whitespace-pre-wrap">
-              {l.source_text}
-            </div>
-            <div className="col-span-5 text-sm whitespace-pre-wrap text-stone-700">
-              {l.translation ?? <span className="text-stone-400">—</span>}
-            </div>
-          </div>
-        ))}
-        {lines.length > 50 && (
-          <div className="px-3 py-2 text-xs text-stone-500">
-            … {lines.length - 50} more lines
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function formatTs(ms: number): string {
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  const s = Math.floor((ms % 60_000) / 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
-}
