@@ -9,7 +9,10 @@ const DEFAULTS: AppConfig = {
   gemini_api_key: "",
   library_folder_path: "",
   file_conflict_strategy: "increment",
-  default_thinking_level: "medium",
+  // Google's recommended default for accuracy-sensitive work on Gemini 3.1
+  // Pro is "high" (dynamic thinking budget). This controls translate +
+  // re-translate only; context extraction always runs at "low".
+  default_thinking_level: "high",
   chunk_size_lines: 50,
   model_alias: "gemini-pro-latest",
 };

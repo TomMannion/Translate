@@ -5,10 +5,20 @@ import { getDb } from "../db.ts";
 import { readConfig } from "../config.ts";
 import { costFor } from "./pricing.ts";
 
-const THINKING_BUDGETS: Record<ThinkingLevel, number> = {
-  low: 512,
-  medium: 2048,
-  high: 8192,
+// Gemini 3 generation config notes:
+// - temperature: deliberately NOT set. Google strongly recommends keeping the
+//   default (1.0) on Gemini 3 models; lowering it has been observed to cause
+//   looping or degraded performance. This is the opposite of pre-3.x advice.
+//   https://ai.google.dev/gemini-api/docs/gemini-3
+// - thinkingLevel: replaces the older thinkingBudget (Gemini 2.5). Sending
+//   both fails with a 400. Gemini 3.1 Pro supports LOW / MEDIUM / HIGH only
+//   (no MINIMAL, no off); the API picks a dynamic budget per request.
+// - topP / topK / seed / penalties: no documented benefit for translation;
+//   defaults are fine.
+const SDK_THINKING_LEVEL: Record<ThinkingLevel, "LOW" | "MEDIUM" | "HIGH"> = {
+  low: "LOW",
+  medium: "MEDIUM",
+  high: "HIGH",
 };
 
 export interface GeminiCallParams {
@@ -61,7 +71,7 @@ export async function callGemini(
 
   const config: Record<string, unknown> = {
     systemInstruction: params.systemInstruction,
-    thinkingConfig: { thinkingBudget: THINKING_BUDGETS[thinking] },
+    thinkingConfig: { thinkingLevel: SDK_THINKING_LEVEL[thinking] },
   };
   if (params.responseMimeType) config.responseMimeType = params.responseMimeType;
   if (params.responseSchema) config.responseSchema = params.responseSchema;
