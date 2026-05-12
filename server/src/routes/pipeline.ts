@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming";
 import { getDb } from "../db.ts";
 import { readConfig } from "../config.ts";
 import { callGemini, GeminiError } from "../llm/gemini.ts";
+import { extractContext } from "../llm/context.ts";
 import { loadPrompt } from "../llm/prompt-version.ts";
 import {
   buildChunk,
@@ -16,7 +17,10 @@ import {
 import { wrapSubtitle } from "../srt/normalize.ts";
 import { writeSrt } from "../srt/write.ts";
 import type { LineRow, EpisodeRow } from "../types.ts";
-import type { TranslationEvent } from "../../../shared/types.ts";
+import type {
+  EpisodeMetadata,
+  TranslationEvent,
+} from "../../../shared/types.ts";
 
 export const pipelineRoute = new Hono();
 
@@ -34,6 +38,96 @@ const TRANSLATE_RESPONSE_SCHEMA = {
     required: ["idx", "translation"],
   },
 } as const;
+
+pipelineRoute.post("/episodes/:id/extract-context", async (c) => {
+  const episodeId = c.req.param("id");
+  const db = getDb();
+
+  const epRow = db
+    .prepare("SELECT * FROM episodes WHERE id = ?")
+    .get(episodeId) as EpisodeRow | undefined;
+  if (!epRow) return c.json({ error: "episode not found" }, 404);
+
+  const lineRows = db
+    .prepare(
+      "SELECT idx, source_text FROM subtitle_lines WHERE episode_id = ? ORDER BY idx ASC",
+    )
+    .all(episodeId) as Array<{ idx: number; source_text: string }>;
+  if (lineRows.length === 0) {
+    return c.json({ error: "episode has no lines" }, 400);
+  }
+
+  try {
+    const result = await extractContext({
+      episodeId,
+      title: epRow.title,
+      description: epRow.description,
+      metadata: JSON.parse(epRow.metadata || "{}") as EpisodeMetadata,
+      transcript: lineRows,
+    });
+
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO context_docs (episode_id, markdown_content, generated_at, edited_at)
+       VALUES (?, ?, ?, NULL)
+       ON CONFLICT(episode_id) DO UPDATE SET
+         markdown_content = excluded.markdown_content,
+         generated_at = excluded.generated_at,
+         edited_at = NULL`,
+    ).run(episodeId, result.markdown, now);
+    db.prepare("UPDATE episodes SET updated_at = ? WHERE id = ?").run(
+      now,
+      episodeId,
+    );
+
+    return c.json({ ok: true, markdown_content: result.markdown });
+  } catch (err) {
+    const message =
+      err instanceof GeminiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return c.json({ error: message }, 500);
+  }
+});
+
+pipelineRoute.put("/episodes/:id/context", async (c) => {
+  const episodeId = c.req.param("id");
+  const db = getDb();
+
+  const epRow = db
+    .prepare("SELECT id FROM episodes WHERE id = ?")
+    .get(episodeId) as { id: string } | undefined;
+  if (!epRow) return c.json({ error: "episode not found" }, 404);
+
+  const body = (await c.req.json()) as { markdown_content?: string };
+  if (typeof body.markdown_content !== "string") {
+    return c.json({ error: "markdown_content required" }, 400);
+  }
+
+  const now = Date.now();
+  const existing = db
+    .prepare("SELECT episode_id FROM context_docs WHERE episode_id = ?")
+    .get(episodeId);
+
+  if (existing) {
+    db.prepare(
+      "UPDATE context_docs SET markdown_content = ?, edited_at = ? WHERE episode_id = ?",
+    ).run(body.markdown_content, now, episodeId);
+  } else {
+    db.prepare(
+      `INSERT INTO context_docs (episode_id, markdown_content, generated_at, edited_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run(episodeId, body.markdown_content, now, now);
+  }
+  db.prepare("UPDATE episodes SET updated_at = ? WHERE id = ?").run(
+    now,
+    episodeId,
+  );
+
+  return c.json({ ok: true, markdown_content: body.markdown_content });
+});
 
 pipelineRoute.post("/episodes/:id/translate/cancel", (c) => {
   const ctrl = inFlight.get(c.req.param("id"));

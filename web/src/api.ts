@@ -74,5 +74,19 @@ export const api = {
       { method: "POST" },
     ),
 
+  extractContext: (id: string) =>
+    http<{ ok: true; markdown_content: string }>(
+      `/api/episodes/${id}/extract-context`,
+      { method: "POST" },
+    ),
+  saveContext: (id: string, markdown_content: string) =>
+    http<{ ok: true; markdown_content: string }>(
+      `/api/episodes/${id}/context`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ markdown_content }),
+      },
+    ),
+
   getUsage: () => http<UsageTotals>("/api/usage"),
 };
