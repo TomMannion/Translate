@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Local app data — contains plaintext Gemini API key
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/config.json
+
+# Editor
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local
