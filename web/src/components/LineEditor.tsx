@@ -6,6 +6,19 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  ArrowDown,
+  Check,
+  CheckCheck,
+  CheckCircle2,
+  CircleSlash,
+  Keyboard,
+  Loader2,
+  RotateCcw,
+  Sparkles,
+  X,
+} from "lucide-react";
+import Button from "./Button.tsx";
 import { api } from "../api.ts";
 import type { SubtitleLine } from "../../../shared/types.ts";
 
@@ -23,6 +36,7 @@ export default function LineEditor({
   const [filter, setFilter] = useState<"all" | "unapproved" | "untranslated">(
     "all",
   );
+  const [showHelp, setShowHelp] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const visible = useMemo(() => {
@@ -35,7 +49,15 @@ export default function LineEditor({
     return lines;
   }, [lines, filter]);
 
-  const [showHelp, setShowHelp] = useState(false);
+  const counts = useMemo(
+    () => ({
+      all: lines.length,
+      unapproved: lines.filter((l) => l.translation !== null && !l.approved)
+        .length,
+      untranslated: lines.filter((l) => l.translation === null).length,
+    }),
+    [lines],
+  );
 
   const jumpToNextUnapproved = useCallback(
     (fromIdx?: number) => {
@@ -45,8 +67,7 @@ export default function LineEditor({
         cursorIdx = Number(active.dataset.lineIdx);
       }
       const next = lines.find(
-        (l) =>
-          l.translation !== null && !l.approved && l.idx > cursorIdx,
+        (l) => l.translation !== null && !l.approved && l.idx > cursorIdx,
       );
       if (!next) return;
       const el = containerRef.current?.querySelector<HTMLTextAreaElement>(
@@ -60,7 +81,7 @@ export default function LineEditor({
     [lines],
   );
 
-  // Global shortcuts when NOT inside an editable field.
+  // Global keyboard shortcuts (only when not inside an editable field).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -84,44 +105,51 @@ export default function LineEditor({
   }, [jumpToNextUnapproved]);
 
   return (
-    <section>
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-stone-600 uppercase tracking-wide">
-          Lines
-        </h2>
-        <div className="flex items-center gap-2">
-          <select
-            className="rounded border border-stone-300 px-2 py-1 text-sm"
-            value={filter}
-            onChange={(e) =>
-              setFilter(e.target.value as typeof filter)
-            }
-          >
-            <option value="all">All ({lines.length})</option>
-            <option value="unapproved">
-              Unapproved (
-              {lines.filter((l) => l.translation !== null && !l.approved).length}
-              )
-            </option>
-            <option value="untranslated">
-              Untranslated ({lines.filter((l) => l.translation === null).length}
-              )
-            </option>
-          </select>
-          <button
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">Lines</h2>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Edit, approve, or re-translate with a hint. Tab between rows.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <FilterChip
+            active={filter === "all"}
+            onClick={() => setFilter("all")}
+            label="All"
+            count={counts.all}
+          />
+          <FilterChip
+            active={filter === "unapproved"}
+            onClick={() => setFilter("unapproved")}
+            label="Unapproved"
+            count={counts.unapproved}
+          />
+          <FilterChip
+            active={filter === "untranslated"}
+            onClick={() => setFilter("untranslated")}
+            label="Untranslated"
+            count={counts.untranslated}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => jumpToNextUnapproved()}
-            className="rounded border border-stone-300 px-2 py-1 text-sm"
-            title="Jump to next unapproved line (j)"
+            icon={<ArrowDown className="h-3.5 w-3.5" />}
+            title="Jump to next unapproved (j)"
           >
-            Next unapproved (j)
-          </button>
-          <button
+            Next (j)
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setShowHelp(true)}
-            className="rounded border border-stone-300 px-2 py-1 text-sm"
+            icon={<Keyboard className="h-3.5 w-3.5" />}
             title="Keyboard shortcuts (?)"
           >
-            ?
-          </button>
+            Shortcuts
+          </Button>
         </div>
       </div>
 
@@ -134,20 +162,49 @@ export default function LineEditor({
 
       <div
         ref={containerRef}
-        className="rounded border border-stone-200 bg-white divide-y divide-stone-100"
+        className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100 overflow-hidden"
       >
+        <div className="grid grid-cols-12 gap-3 px-3 py-2 bg-stone-50 text-[10px] uppercase tracking-wide text-stone-500 font-medium border-b border-stone-200">
+          <div className="col-span-2">Idx · time</div>
+          <div className="col-span-4">Source (Cantonese)</div>
+          <div className="col-span-6">Translation (English)</div>
+        </div>
         {visible.map((l) => (
-          <LineRow
-            key={l.id}
-            line={l}
-            onChanged={onLineChanged}
-          />
+          <LineRow key={l.id} line={l} onChanged={onLineChanged} />
         ))}
         {visible.length === 0 && (
-          <p className="px-3 py-4 text-sm text-stone-500">No matching lines.</p>
+          <p className="px-3 py-6 text-sm text-stone-500 text-center">
+            No matching lines.
+          </p>
         )}
       </div>
     </section>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "bg-stone-900 text-white"
+          : "bg-white border border-stone-200 text-stone-600 hover:bg-stone-100"
+      }`}
+    >
+      {label}{" "}
+      <span className={active ? "opacity-70" : "text-stone-400"}>{count}</span>
+    </button>
   );
 }
 
@@ -163,15 +220,13 @@ function LineRow({
   const [showHint, setShowHint] = useState(false);
   const [hint, setHint] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [savedTick, setSavedTick] = useState(0);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Keep draft in sync when the server-side line changes (e.g. retranslate,
-  // bulk-replace, or another action elsewhere).
   useEffect(() => {
     setDraft(line.translation ?? "");
   }, [line.translation]);
 
-  // Auto-resize the textarea to its content.
   useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -188,6 +243,7 @@ function LineRow({
     try {
       const r = await api.updateLine(line.id, draft);
       onChanged(r.line);
+      setSavedTick((t) => t + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -239,7 +295,6 @@ function LineRow({
 
   const onKeyDown = async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      // Save (if dirty) → approve → advance to next unapproved.
       e.preventDefault();
       setBusy(true);
       setError(null);
@@ -250,7 +305,6 @@ function LineRow({
         }
         const approved = await api.setApproval(line.id, true);
         onChanged(approved.line);
-        // Advance.
         const all = Array.from(
           document.querySelectorAll<HTMLTextAreaElement>(
             "textarea[data-line-idx]",
@@ -280,73 +334,96 @@ function LineRow({
 
   return (
     <div
-      className={`px-3 py-2 grid grid-cols-12 gap-3 items-start ${
-        line.approved ? "bg-emerald-50/40" : ""
+      className={`group grid grid-cols-12 gap-3 px-3 py-2.5 transition-colors items-start ${
+        line.approved ? "bg-emerald-50/30" : "hover:bg-stone-50/60"
       }`}
     >
-      <div className="col-span-2 text-xs font-mono text-stone-500">
-        <div>#{line.idx}</div>
+      <div className="col-span-2 text-xs font-mono text-stone-500 leading-snug">
+        <div className="font-semibold text-stone-700">#{line.idx}</div>
         <div>{formatTs(line.start_ms)}</div>
         {line.last_change_source && (
-          <div className="text-[10px] uppercase mt-1 text-stone-400">
+          <span className="inline-block mt-1 px-1.5 py-0.5 text-[9px] uppercase tracking-wide rounded bg-stone-100 text-stone-500">
             {line.last_change_source.replace("_", " ")}
-          </div>
+          </span>
         )}
       </div>
-      <div className="col-span-4 text-sm whitespace-pre-wrap">
+      <div className="col-span-4 text-sm leading-relaxed whitespace-pre-wrap text-stone-800">
         {line.source_text}
       </div>
-      <div className="col-span-6 space-y-1">
-        <textarea
-          ref={taRef}
-          data-line-id={line.id}
-          data-line-idx={line.idx}
-          data-approved={line.approved ? "true" : "false"}
-          className={`w-full rounded border px-2 py-1 text-sm font-sans resize-none ${
-            dirty
-              ? "border-amber-400 bg-amber-50"
-              : "border-stone-300 bg-white"
-          }`}
-          rows={1}
-          value={draft}
-          placeholder={line.translation === null ? "(untranslated)" : ""}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          onKeyDown={onKeyDown}
-          disabled={busy}
-        />
-        <div className="flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              checked={!!line.approved}
-              onChange={toggleApprove}
-              disabled={busy || line.translation === null}
-            />
-            <span>Approve</span>
-          </label>
+      <div className="col-span-6 space-y-1.5">
+        <div className="relative">
+          <textarea
+            ref={taRef}
+            data-line-id={line.id}
+            data-line-idx={line.idx}
+            data-approved={line.approved ? "true" : "false"}
+            className={`w-full rounded-md border px-2.5 py-1.5 text-sm leading-relaxed font-sans resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 ${
+              dirty
+                ? "border-amber-400 bg-amber-50/40"
+                : "border-stone-200 bg-white"
+            }`}
+            rows={1}
+            value={draft}
+            placeholder={line.translation === null ? "(untranslated)" : ""}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={save}
+            onKeyDown={onKeyDown}
+            disabled={busy}
+          />
+          {busy && (
+            <Loader2 className="absolute top-2 right-2 h-3.5 w-3.5 animate-spin text-stone-400" />
+          )}
+          {!busy && savedTick > 0 && !dirty && (
+            <span
+              key={savedTick}
+              className="absolute top-2 right-2 text-emerald-600 animate-[fadeOut_1.5s_ease-out_forwards]"
+              aria-hidden
+            >
+              <Check className="h-3.5 w-3.5" />
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
           <button
+            type="button"
+            onClick={toggleApprove}
+            disabled={busy || line.translation === null}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              line.approved
+                ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
+                : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+            }`}
+            title={line.approved ? "Approved — click to unapprove" : "Approve"}
+          >
+            {line.approved ? (
+              <CheckCheck className="h-3.5 w-3.5" />
+            ) : (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            )}
+            {line.approved ? "Approved" : "Approve"}
+          </button>
+          <IconAction
             onClick={undo}
             disabled={busy || line.previous_translation === null}
-            className="text-stone-600 hover:text-stone-900 disabled:opacity-30"
-            title="Undo last change (swap with previous translation)"
-          >
-            Undo
-          </button>
-          <button
+            title="Undo last change (swap with previous)"
+            icon={<RotateCcw className="h-3.5 w-3.5" />}
+            label="Undo"
+          />
+          <IconAction
             onClick={() => setShowHint((s) => !s)}
             disabled={busy || line.translation === null}
-            className="text-stone-600 hover:text-stone-900 disabled:opacity-30"
-          >
-            Re-translate…
-          </button>
-          {busy && <span className="text-stone-400">working…</span>}
-          {error && <span className="text-red-700">{error}</span>}
+            title="Re-translate with optional hint"
+            icon={<Sparkles className="h-3.5 w-3.5" />}
+            label="Re-translate"
+          />
+          {error && (
+            <span className="text-xs text-red-700 ml-auto">{error}</span>
+          )}
         </div>
         {showHint && (
-          <div className="mt-1 flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <input
-              className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs"
+              className="flex-1 rounded-md border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
               placeholder="Optional hint (e.g. 'too literal — more casual')"
               value={hint}
               onChange={(e) => setHint(e.target.value)}
@@ -359,17 +436,64 @@ function LineRow({
                 }
               }}
             />
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={retranslate}
               disabled={busy}
-              className="rounded bg-indigo-700 text-white px-2 py-1 text-xs disabled:opacity-50"
+              icon={
+                busy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )
+              }
             >
               Run
-            </button>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowHint(false);
+                setHint("");
+              }}
+              icon={<X className="h-3.5 w-3.5" />}
+              aria-label="Cancel hint"
+            >
+              {""}
+            </Button>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function IconAction({
+  onClick,
+  disabled,
+  title,
+  icon,
+  label,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  title: string;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-stone-600 hover:bg-stone-100 hover:text-stone-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -415,22 +539,24 @@ function BulkReplace({
   };
 
   return (
-    <div className="mb-3 rounded border border-stone-200 bg-stone-50 px-3 py-2 flex items-center gap-2 flex-wrap text-sm">
-      <span className="font-medium text-stone-600">Bulk replace:</span>
+    <div className="rounded-lg border border-stone-200 bg-white px-3 py-2 flex items-center gap-2 flex-wrap text-sm">
+      <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
+        Bulk replace
+      </span>
       <input
-        className="rounded border border-stone-300 px-2 py-1 text-sm w-40"
+        className="rounded-md border border-stone-300 px-2 py-1 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
         placeholder="find"
         value={find}
         onChange={(e) => setFind(e.target.value)}
       />
       <span className="text-stone-400">→</span>
       <input
-        className="rounded border border-stone-300 px-2 py-1 text-sm w-40"
+        className="rounded-md border border-stone-300 px-2 py-1 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500"
         placeholder="replace"
         value={replace}
         onChange={(e) => setReplace(e.target.value)}
       />
-      <label className="flex items-center gap-1 text-xs">
+      <label className="flex items-center gap-1 text-xs text-stone-600">
         <input
           type="checkbox"
           checked={caseSensitive}
@@ -438,7 +564,7 @@ function BulkReplace({
         />
         Case
       </label>
-      <label className="flex items-center gap-1 text-xs">
+      <label className="flex items-center gap-1 text-xs text-stone-600">
         <input
           type="checkbox"
           checked={wholeWord}
@@ -446,14 +572,25 @@ function BulkReplace({
         />
         Whole word
       </label>
-      <button
+      <Button
+        variant="primary"
+        size="sm"
         onClick={apply}
         disabled={!find || busy}
-        className="rounded bg-stone-900 text-white px-3 py-1 text-sm disabled:opacity-50"
+        icon={
+          busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : undefined
+        }
       >
         Apply
-      </button>
-      {result && <span className="text-xs text-stone-600">{result}</span>}
+      </Button>
+      {result && (
+        <span className="text-xs text-stone-600 inline-flex items-center gap-1">
+          <CircleSlash className="h-3 w-3 text-stone-400" />
+          {result}
+        </span>
+      )}
     </div>
   );
 }
@@ -465,38 +602,48 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="rounded-lg bg-white shadow-xl max-w-md w-full p-6 space-y-3"
+        className="rounded-lg bg-white shadow-xl max-w-md w-full p-6 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-semibold">Keyboard shortcuts</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold inline-flex items-center gap-2">
+            <Keyboard className="h-4 w-4 text-stone-500" />
+            Keyboard shortcuts
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-stone-400 hover:text-stone-700"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         <table className="w-full text-sm">
-          <tbody>
-            <Row keys="j" desc="Jump to next unapproved line" />
-            <Row keys="?" desc="Toggle this help" />
-            <Row keys="Esc" desc="Close help / revert textarea draft" />
-            <Row
-              keys="⌘/Ctrl + Enter"
-              desc="Save + approve + advance (in textarea)"
+          <tbody className="divide-y divide-stone-100">
+            <ShortcutRow keys="j" desc="Jump to next unapproved line" />
+            <ShortcutRow keys="?" desc="Toggle this help" />
+            <ShortcutRow keys="Esc" desc="Close help / revert textarea draft" />
+            <ShortcutRow
+              keys="⌘ / Ctrl + Enter"
+              desc="Save + approve + advance (inside textarea)"
             />
-            <Row keys="Tab" desc="Move between textareas (native)" />
+            <ShortcutRow keys="Tab" desc="Move between textareas" />
           </tbody>
         </table>
-        <button
-          onClick={onClose}
-          className="rounded bg-stone-900 text-white px-3 py-1.5 text-sm"
-        >
-          Close
-        </button>
       </div>
     </div>
   );
 }
 
-function Row({ keys, desc }: { keys: string; desc: string }) {
+function ShortcutRow({ keys, desc }: { keys: string; desc: string }) {
   return (
-    <tr className="border-t border-stone-100">
-      <td className="py-1 pr-3 font-mono text-xs whitespace-nowrap">{keys}</td>
-      <td className="py-1 text-stone-700">{desc}</td>
+    <tr>
+      <td className="py-2 pr-3 align-top">
+        <kbd className="font-mono text-xs bg-stone-100 border border-stone-200 rounded px-1.5 py-0.5 whitespace-nowrap">
+          {keys}
+        </kbd>
+      </td>
+      <td className="py-2 text-stone-700">{desc}</td>
     </tr>
   );
 }
